@@ -4,6 +4,9 @@ import glob
 import sys
 import subprocess
 import os
+from ase import io
+import re
+import numpy as np
 
 class Config:
     def __init__(self):
@@ -21,6 +24,7 @@ class Config:
         # Initialize non-passed arguments to None
         self.live_points = None
         self.prefix = None
+        self.num_of_trajectories = None
 
     def _add_arguments(self):
         """
@@ -87,11 +91,34 @@ class Config:
         with open(energy_file, 'r') as file:
             self.live_points = int(file.readline().split()[0])
 
+    def read_in_num_of_trajectories(self):
+        """
+        # Determine the number of trajectories.
+
+        param:
+            config: Configuration object with parameters
+        returns:
+            int: The number of trajectories.
+
+        """
+        # Construct the regex pattern
+        pattern = rf'{re.escape(self.prefix)}\.traj\.(\d+)\.extxyz'
+
+        try:
+            self.num_of_trajectories = max(
+                int(re.search(pattern, f).group(1))
+                for f in os.listdir('.')  # List files in the current directory
+                if re.search(pattern, f)
+            ) + 1  # +1 as first trajectory is 0
+        except ValueError:
+            print("No matching files found.")
+
 def calculate_partition_function(config):
     """
     Calculate the partition function from the .energies file.
-    :param config: Configuration object with parameters
-    :return: None
+    param:
+        config: Configuration object with parameters
+    return: None
     """
     with open("analyse.dat", "w") as output_file:
         try:
@@ -110,15 +137,35 @@ def calculate_partition_function(config):
 
 
 
+def concat_all_traj_by_iteration(config):
+    data = []
+    struc_store = []
+    for i in range(config.num_of_trajectories):
+        strucs = io.read(f"{config.prefix}.traj.{i}.extxyz", index=':')
+
+        for j in range(len(strucs)):
+            struc = strucs[j]
+            itera = struc.info['iter']
+            data.append(itera)
+        struc_store += strucs
+    data = np.array(data)
+    sort_ind = np.argsort(data)
+    strucs_sorted = [struc_store[i] for i in sort_ind]
+    io.write(f"{config.prefix}.traj.ordered.extxyz", strucs_sorted, format='extxyz')
+
+
+
 
 def main():
 
     config = Config()
     config.read_in_number_of_live_points_and_prefix()
+    config.read_in_num_of_trajectories()
 
+    concat_all_traj_by_iteration(config)
     # If arguments given calculate the partition function
-    if config.args.M is not None:
-        calculate_partition_function(config)
+    # if config.args.M is not None:
+    #     calculate_partition_function(config)
 
     
 
