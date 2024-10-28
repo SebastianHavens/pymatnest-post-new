@@ -50,7 +50,7 @@ class Config:
         self.parser.add_argument('--rcut', type=float, defualt=6, help='Cutoff for rdf calculation')
         self.parser.add_argument('--bin_width', type=float, default=0.05, help='Bin width for rdf calculation')
         self.parser.add_argument('--concat', action='store_true', help='Concatenate all trajectories by iteration number.')
-
+        self.parser.add_argument('--qw_cut', type=float, help='Cutoff for QW calculation')
     def get_args(self):
         """
         Return parsed command-line arguments.
@@ -219,6 +219,8 @@ def calculate_rdf(config):
     Will use atom types from input arguments mask1 and mask2 for atom types. If not defined the atom type is determined
     from a trajectory file before this function is called.
 
+    If config.args.qw is True, calculate radius between shell 1 and 2 and set it as qw_cut for QW calculation.
+
     Parameters:
         config : object
         A configuration object containing:
@@ -253,6 +255,32 @@ def calculate_rdf(config):
         print(f"Command failed with error: {e}")
         exit(e.returncode)
 
+    if config.args.qw is True:
+        r, value = np.loadtxt('allrdf.out', unpack=True, usecols=(0, 1))
+        found = False
+
+        index_end_of_first_shell = None
+        index_start_of_second_shell = None
+        # Find index of end of first shell and start of second shell
+        for i in range(1, len(r)):
+            if value[i] == 0 and value[i - 1] != 0:
+                index_end_of_first_shell = i
+                found = True
+            if found and value[i] != 0:
+                index_start_of_second_shell = i
+                break
+
+        # Abort if we fail to distinguish first and second coordination shell
+        if index_end_of_first_shell is None or index_start_of_second_shell is None:
+            print("Failed to find end of first shell and start of second shell in rdf calculation, aborting!")
+            exit()
+
+        # Take mid-point between two shells for cutoff
+        config.args.qw_cut = round(
+            ((index_start_of_second_shell - index_end_of_first_shell) / 2) + index_end_of_first_shell)
+        print(f"Radius between first and second coordination shell is {config.args.qw_cut}, this will be used for the"
+              f"QW calculation.")
+
 def calculate_qw(config):
     """Calculating the QW bond order parameters.
        We use the user provided cutoff value or if not provided the first shell from the RDF calculation which is
@@ -268,7 +296,9 @@ def calculate_qw(config):
     Requires:
         QUIP rdf to be in path
         All trajectories to be concatenated.
+        qw_cut to be provided as an argument or rdf to have been calculated.
     """
+
     print("Calculating QW bond order parameters")
     print("Calculating Q4 W4")
     try:
