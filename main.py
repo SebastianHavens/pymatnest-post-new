@@ -4,11 +4,14 @@ import glob
 import sys
 import subprocess
 import os
+from argparse import Namespace
+
 from ase import io
 import re
 import numpy as np
 
 class Config:
+
     def __init__(self):
         """
         Initialize the Config class, setting up the argument parser, adding
@@ -18,13 +21,12 @@ class Config:
         self.parser = argparse.ArgumentParser(description='Pymatnest post analysis package.')
         self._add_arguments()
         self.args = self.parser.parse_args()
-        #print(self.args.M)
         self._validate_flags()
-
         # Initialize non-passed arguments to None
         self.live_points = None
         self.prefix = None
         self.num_of_trajectories = None
+
 
     def _add_arguments(self):
         """
@@ -38,11 +40,16 @@ class Config:
             -D (float): Temperature step for heat capacity calculation.
         """
 
-        self.parser.add_argument('-qw', action='store_true', help='Enable QW calculation')
-        self.parser.add_argument('-rdf', action='store_true', help='Enable RDF calculation')
+        self.parser.add_argument('--qw', action='store_true', help='Enable QW calculation')
+        self.parser.add_argument('--rdf', action='store_true', help='Enable RDF calculation')
         self.parser.add_argument('-M', type=float, help='Heat capacity calculation: Minimum temperature')
         self.parser.add_argument('-n', type=int, help='Heat capacity calculation: Number of temperature steps')
         self.parser.add_argument('-D', type=float, help='Heat capacity calculation: Temperature step')
+        self.parser.add_argument('-=mask1', type=str, help='Atom type 1 for rdf calculation')
+        self.parser.add_argument('--mask2', type=str, help='Atom type 2 for rdf calculation')
+        self.parser.add_argument('--rcut', type=float, defualt=6, help='Cutoff for rdf calculation')
+        self.parser.add_argument('--bin_width', type=float, default=0.05, help='Bin width for rdf calculation')
+        self.parser.add_argument('--concat', action='store_true', help='Concatenate all trajectories by iteration number.')
 
     def get_args(self):
         """
@@ -56,12 +63,34 @@ class Config:
 
     def _validate_flags(self):
         """
-        If any of the flags for calculating the partition function are present, ensure they are all present
+        If any of the flags for calculating the partition function are present, ensure they are all present.
+        If a mask parameter is present for rdf calculation, ensure they're both present.
+        If calculating QW, ensure also calculating the RDF if no cutoff provided for the qw calculation.
         """
         if any(flag is not None for flag in [self.args.M, self.args.n, self.args.D]):
             if None in [self.args.M, self.args.n, self.args.D]:
                 sys.exit("Error: All three flags (--M, --n, --D) must be set together.")
 
+        """
+        If any of the flags for rdf atom type, ensure they are both present.
+        If not present will determine atom type from file.
+        """
+        if any (flag is not None for flag in [self.args.mask1, self.args.mask2]):
+            if None in [self.args.mask1, self.args.mask2]:
+                sys.exit('If any mask (atom type) is defined for rdf calculation, both must be defined.')
+
+        """
+        We use the first shell from the RDF for qw calculation if no QW cutoff set.
+        """
+        if self.args.qw is True and self.args.qw_cut is None:
+            self.args.rdf = True
+
+        """
+        Turning on concatenation if not already defined for the QW calculation
+        """
+        if self.args.qw is True and self.args.concat is False:
+            self.args.concat = True
+            print('Turning on concatenation of all trajectories, this is needed for the QW calculation.')
 
     def read_in_number_of_live_points_and_prefix(self):
         """
@@ -113,6 +142,23 @@ class Config:
         except ValueError:
             print("No matching files found.")
 
+    def determine_atom_type(self):
+        """
+        Determines atom type for RDF calculation if not provided as an argument with mask1 and mask2.
+        Will only return one atom type, for binary system it must be user defined.
+
+        param:
+            config: Configuration object with parameters
+        return:
+            mask1 (str): Atom type 1 for rdf calculation.
+            mask2 (str): Atom type 2 for rdf calculation.
+        """
+
+        configuration = (io.read(f'{self.prefix}.traj.{self.num_of_trajectories - 1}.extxyz', index='-1'))
+        self.args.mask1 = configuration[0].symbol
+        self.args.mask2 = configuration[1].symbol
+
+
 def calculate_partition_function(config):
     """
     Calculate the partition function from the .energies file.
@@ -120,6 +166,7 @@ def calculate_partition_function(config):
         config: Configuration object with parameters
     return: None
     """
+    print("Calculating the partition function.")
     with open("analyse.dat", "w") as output_file:
         try:
             # Try running the command directly
@@ -138,8 +185,21 @@ def calculate_partition_function(config):
 
 
 def concat_all_traj_by_iteration(config):
+    """
+     Concatenates trajectory files by iteration and writes them to a new file.
+
+     Parameters:
+     ----------
+     config : object
+         A configuration object containing:
+         - `num_of_trajectories` (int): The number of trajectory files to process.
+         - `prefix` (str): The prefix used in the file names to be read and written.
+
+     Returns: None
+     """
     data = []
     struc_store = []
+    print(f"Concatenating all trajectories by iteration number")
     for i in range(config.num_of_trajectories):
         strucs = io.read(f"{config.prefix}.traj.{i}.extxyz", index=':')
 
@@ -153,8 +213,93 @@ def concat_all_traj_by_iteration(config):
     strucs_sorted = [struc_store[i] for i in sort_ind]
     io.write(f"{config.prefix}.traj.ordered.extxyz", strucs_sorted, format='extxyz')
 
+def calculate_rdf(config):
+    """
+    Calculate rdf from last configuration in trajectory file.
+    Will use atom types from input arguments mask1 and mask2 for atom types. If not defined the atom type is determined
+    from a trajectory file before this function is called.
 
+    Parameters:
+        config : object
+        A configuration object containing:
+        - `prefix` (str): The prefix used in the file names to be read and written.
+        - 'mask1' (str): The first atom type to be used to calculate RDF.
+        - 'mask2' (str): The second atom type to be used to calculate RDF.
 
+    Requires:
+        QUIP rdf to be in path
+    """
+
+    # extract and write last configuration from a trajectory file. -1 as it is the total number of trajectories and
+    # counting starts at 0.
+    last_configuration = (io.read(f'{config.prefix}.traj.{config.num_of_trajectories - 1}.extxyz', index='-1'))
+    io.write(f'{config.prefix}.traj.last_config.extxyz', last_configuration, format='extxyz')
+
+    # Run rdf calculation on last configuration in trajectory file
+    try:
+        print(f"Calculating rdf of atom types {config.args.mask1} and {config.args.mask2}, with a cutoff of"
+              f" {config.args.cutoff} and bin width of {config.args.bin_width}.")
+        subprocess.run(['rdf',
+                             f'{config.prefix}.traj.last_config.extxyz',
+                             'datafile=foo.temp',
+                             f'mask1={config.args.mask1}',
+                             f'mask2={config.args.mask2}',
+                             f'r_cut={config.args.rcut}',
+                             f'bin_width={config.args.bin_width}'],
+                             stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL,
+                             check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Command failed with error: {e}")
+        exit(e.returncode)
+
+def calculate_qw(config):
+    """Calculating the QW bond order parameters.
+       We use the user provided cutoff value or if not provided the first shell from the RDF calculation which is
+       determined before this function is called.
+
+    Parameters:
+        config : object
+        A configuration object containing:
+        - `prefix` (str): The prefix used in the file names to be read and written.
+        - 'mask1' (str): The first atom type to be used to calculate RDF.
+        - 'mask2' (str): The second atom type to be used to calculate RDF.
+
+    Requires:
+        QUIP rdf to be in path
+        All trajectories to be concatenated.
+    """
+    print("Calculating QW bond order parameters")
+    print("Calculating Q4 W4")
+    try:
+        subprocess.run(
+            [
+                'get_qw',
+                f'atfile_in={config.prefix}.traj.ordered.extxyz',
+                f'r_cut={config.args.qw_cutoff}',
+                'l=4',
+                'calc_QWave=T'
+            ],
+            stdout=open(f'{config.prefix}_ordered.qw4', 'w'),
+            stderr=subprocess.PIPE,  # Captures any error messages
+            check=True  # Raises an error if the command fails
+        )
+        print("Calculating Q6 W6")
+        subprocess.run(
+            [
+                'get_qw',
+                f'atfile_in={config.prefix}.traj.ordered.extxyz',
+                f'r_cut={config.args.qw_cutoff}',
+                'l=6',
+                'calc_QWave=T'
+            ],
+            stdout=open(f'{config.prefix}_ordered.qw6', 'w'),
+            stderr=subprocess.PIPE,  # Captures any error messages
+            check=True  # Raises an error if the command fails
+        )
+    except subprocess.CalledProcessError as e:
+        print(f"Command failed with error: {e}")
+        exit(e.returncode)
 
 def main():
 
@@ -162,12 +307,25 @@ def main():
     config.read_in_number_of_live_points_and_prefix()
     config.read_in_num_of_trajectories()
 
-    concat_all_traj_by_iteration(config)
-    # If arguments given calculate the partition function
-    # if config.args.M is not None:
-    #     calculate_partition_function(config)
+    # Concatenate all trajectories into one file by iteration number.
+    if config.args.concat:
+        concat_all_traj_by_iteration(config)
 
-    
+    # If arguments given calculate the partition function
+    if config.args.M is not None:
+        calculate_partition_function(config)
+
+    # Calculate the RDF
+    if config.args.rdf:
+        # If atom types aren't given for the RDF calculation, we determine the atom types from a trajectory file.
+        # Will only identify one atom type.
+        if config.args.mask1 is None or config.args.mask2 is None:
+            (config.determine_atom_type())
+        calculate_rdf(config)
+
+    #Calculate the QW parameters
+    if config.args.qw:
+        calculate_qw(config)
 
 
 
