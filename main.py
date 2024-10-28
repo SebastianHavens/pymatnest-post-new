@@ -5,6 +5,7 @@ import sys
 import subprocess
 import os
 from argparse import Namespace
+from scipy import interpolate
 
 from ase import io
 import re
@@ -340,6 +341,46 @@ def calculate_qw(config):
         print(f"Command failed with error: {e}")
         exit(e.returncode)
 
+def calculate_temperature_of_each_configuration(config):
+    """
+    Calculate temperature for every configuration in the trajectory using its enthalpy, temperature is calculated
+    by comparing this to the enthalpy and temperature's calculated using the partition function.
+
+    Parameters
+    ----------
+    config : object
+        A configuration object containing:
+        - `prefix` (str): The prefix used in the file names to be read and written.
+    Returns
+    -------
+    Temperature (list) : A list of temperatures corresponding to each configuration
+
+    """
+
+    # Read in trajectory file
+    traj = io.read(f'{config.prefix}.traj.ordered.extxyz', index=':')
+    ns_energy = traj.info['ns_energy']
+
+    # Load in temperature and potential energy for ns_analyse output
+    T, U = np.loadtxt('analyse.dat', comments='#', usecols=(0, 3), unpack=True)
+    # Create interpolation function to get T from U
+    f = interpolate.interp1d(U, T, fill_value='extrapolate')
+    #print(T, U)
+    # Get T for each configuration in trajectory file
+    temperature = [f(ns_energy[i]) for i in range(len(traj))]
+
+    return temperature
+
+def write_datafile(config, temperatures):
+
+    traj = io.read(f'{config.prefix}.traj.ordered.extxyz', index=':')
+
+    # Create lists of all NS values for each configuration in the trajectory file
+    ns_energy = traj.info['ns_energy']
+    ns_volume = traj.info['volume']
+    ns_iter = traj.info['iter']
+    ns_ke = traj.info['ns_KE']
+
 def main():
 
     config = Config()
@@ -362,9 +403,17 @@ def main():
             (config.determine_atom_type())
         calculate_rdf(config)
 
-    #Calculate the QW parameters
+    # Calculate the QW parameters
     if config.args.qw:
         calculate_qw(config)
+
+    # Calculate temperature of each configuration
+    temperature = calculate_temperature_of_each_configuration(config)
+
+    # write data file:
+    write_datafile(config, temperature)
+
+
 
 
 
