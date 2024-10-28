@@ -162,9 +162,15 @@ class Config:
 def calculate_partition_function(config):
     """
     Calculate the partition function from the .energies file.
-    param:
-        config: Configuration object with parameters
-    return: None
+
+    Parameters
+    ----------
+    config : object
+        Configuration object with parameters.
+
+    Returns
+    -------
+    None
     """
     print("Calculating the partition function.")
     with open("analyse.dat", "w") as output_file:
@@ -186,17 +192,20 @@ def calculate_partition_function(config):
 
 def concat_all_traj_by_iteration(config):
     """
-     Concatenates trajectory files by iteration and writes them to a new file.
+    Concatenates trajectory files by iteration and writes them to a new file.
 
-     Parameters:
-     ----------
-     config : object
-         A configuration object containing:
-         - `num_of_trajectories` (int): The number of trajectory files to process.
-         - `prefix` (str): The prefix used in the file names to be read and written.
+    Parameters
+    ----------
+    config : object
+        A configuration object containing:
 
-     Returns: None
-     """
+        - `num_of_trajectories` (int): The number of trajectory files to process.
+        - `prefix` (str): The prefix used in the file names to be read and written.
+
+    Returns
+    -------
+    None
+    """
     data = []
     struc_store = []
     print(f"Concatenating all trajectories by iteration number")
