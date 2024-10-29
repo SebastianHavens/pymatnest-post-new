@@ -47,6 +47,7 @@ class Config:
         self.parser.add_argument('-M', type=float, help='Heat capacity calculation: Minimum temperature')
         self.parser.add_argument('-n', type=int, help='Heat capacity calculation: Number of temperature steps')
         self.parser.add_argument('-D', type=float, help='Heat capacity calculation: Temperature step')
+        self.parser.add_argument('-k', type=float, default=8.6173324e-5, help='Boltzmann constant (default is (eV/K)')
         self.parser.add_argument('--mask1', type=str, help='Atom type 1 for rdf calculation')
         self.parser.add_argument('--mask2', type=str, help='Atom type 2 for rdf calculation')
         self.parser.add_argument('--r_cut', type=float, default=6, help='Cutoff for rdf calculation')
@@ -69,7 +70,7 @@ class Config:
         If a mask parameter is present for rdf calculation, ensure they're both present.
         If calculating QW, ensure also calculating the RDF if no cutoff provided for the qw calculation.
         """
-        if any(flag is not None for flag in [self.args.M, self.args.n, self.args.D]):
+        if any(flag is not None for flag in [self.args.M, self.args.n, self.args.D, self.args.k]):
             if None in [self.args.M, self.args.n, self.args.D]:
                 sys.exit("Error: All three flags (--M, --n, --D) must be set together.")
 
@@ -180,12 +181,12 @@ def calculate_partition_function(config):
             # Try running the command directly
             subprocess.run(
                 ['ns_analyse', f'{config.prefix}.energies', '-M', str(config.args.M), '-n', str(config.args.n), '-D',
-                 str(config.args.D)], stdout=output_file, check=True)
+                 str(config.args.D), '-k', str(config.args.k)], stdout=output_file, check=True)
         except FileNotFoundError:
             # Fallback to './ns_analyse' if 'ns_analyse' is not found
             subprocess.run(
                 ['./ns_analyse', f'{config.prefix}.energies', '-M', str(config.args.M), '-n', str(config.args.n), '-D',
-                 str(config.args.D)], stdout=output_file, check=True)
+                 str(config.args.D), '-k', str(config.args.k)], stdout=output_file, check=True)
         except subprocess.CalledProcessError as e:
             print(f"Command failed with error: {e}")
             exit(e.returncode)
@@ -407,7 +408,6 @@ def clean_up(config):
                   Path(f"{config.prefix}.traj.ordered.extxyz.idx")]
     for file_path in file_paths:
         if file_path.is_file():
-            print('found file')
             file_path.unlink()
 
 
@@ -436,6 +436,7 @@ def main():
     # Calculate the QW parameters
     if config.args.qw:
         calculate_qw(config)
+
     # write data file:
     write_datafile(config)
 

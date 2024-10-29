@@ -24,9 +24,9 @@ Trajectory file names do not need to be provided.
 Usage of the partition function is descrived above and all three options must be provided.
 A .energies file does not need to be provided as this will be found my the package.
 The output of the partition function will be written to *analyse.dat*.
-The default Boltzmann constant is ****** if a different Boltzmann constants is to be used in the calculation this can be provided with `-k`.
+The default Boltzmann constant is 8.6173324e-5 (eV/K) if a different Boltzmann constants is to be used in the calculation this can be provided with `-k`.
 ```bash
-python main.py  -M 0.1 -n 200 -D 1 -k
+python main.py  -M 0.1 -n 200 -D 1 -k 1
 ```
 
 ### RDF calculation
