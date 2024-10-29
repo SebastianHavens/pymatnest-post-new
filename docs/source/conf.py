@@ -21,11 +21,16 @@ extensions = [
     'sphinx.ext.autodoc',
     'sphinx.ext.autosummary',
     'sphinx.ext.intersphinx',
+    'myst_parser'
 ]
 
 intersphinx_mapping = {
     'python': ('https://docs.python.org/3/', None),
     'sphinx': ('https://www.sphinx-doc.org/en/master/', None),
+}
+source_suffix = {
+    '.rst': 'restructuredtext',
+    '.md': 'markdown',
 }
 intersphinx_disabled_domains = ['std']
 

@@ -10,8 +10,14 @@ Here you will find information on how to install, use, and extend pymatnest-post
    :maxdepth: 2
    :caption: Contents:
 
-    usage
-    generated/main
+   installation
+   usage
 
-.. autosummary::
-   :toctree: generated
+Modules
+=============
+
+
+.. toctree::
+   :maxdepth: 2
+
+   main_functions
