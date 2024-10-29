@@ -6,7 +6,7 @@ import subprocess
 import os
 from argparse import Namespace
 from scipy import interpolate
-
+from pathlib import Path
 from ase import io
 import re
 import numpy as np
@@ -46,9 +46,9 @@ class Config:
         self.parser.add_argument('-M', type=float, help='Heat capacity calculation: Minimum temperature')
         self.parser.add_argument('-n', type=int, help='Heat capacity calculation: Number of temperature steps')
         self.parser.add_argument('-D', type=float, help='Heat capacity calculation: Temperature step')
-        self.parser.add_argument('-=mask1', type=str, help='Atom type 1 for rdf calculation')
+        self.parser.add_argument('--mask1', type=str, help='Atom type 1 for rdf calculation')
         self.parser.add_argument('--mask2', type=str, help='Atom type 2 for rdf calculation')
-        self.parser.add_argument('--rcut', type=float, defualt=6, help='Cutoff for rdf calculation')
+        self.parser.add_argument('--r_cut', type=float, default=6, help='Cutoff for rdf calculation')
         self.parser.add_argument('--bin_width', type=float, default=0.05, help='Bin width for rdf calculation')
         self.parser.add_argument('--concat', action='store_true', help='Concatenate all trajectories by iteration number.')
         self.parser.add_argument('--qw_cut', type=float, help='Cutoff for QW calculation')
@@ -241,7 +241,6 @@ def calculate_rdf(config):
     Requires:
         QUIP rdf to be in path
     """
-
     # extract and write last configuration from a trajectory file. -1 as it is the total number of trajectories and
     # counting starts at 0.
     last_configuration = (io.read(f'{config.prefix}.traj.{config.num_of_trajectories - 1}.extxyz', index='-1'))
@@ -250,13 +249,13 @@ def calculate_rdf(config):
     # Run rdf calculation on last configuration in trajectory file
     try:
         print(f"Calculating rdf of atom types {config.args.mask1} and {config.args.mask2}, with a cutoff of"
-              f" {config.args.cutoff} and bin width of {config.args.bin_width}.")
+              f" {config.args.r_cut} and bin width of {config.args.bin_width}.")
         subprocess.run(['rdf',
-                             f'{config.prefix}.traj.last_config.extxyz',
-                             'datafile=foo.temp',
+                             f'xyzfile={config.prefix}.traj.last_config.extxyz',
+                             'datafile=rdf.data',
                              f'mask1={config.args.mask1}',
                              f'mask2={config.args.mask2}',
-                             f'r_cut={config.args.rcut}',
+                             f'r_cut={config.args.r_cut}',
                              f'bin_width={config.args.bin_width}'],
                              stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL,
@@ -265,7 +264,9 @@ def calculate_rdf(config):
         print(f"Command failed with error: {e}")
         exit(e.returncode)
 
-    if config.args.qw is True:
+    # file
+
+    if config.args.qw is True and config.args.qw_cut is None:
         r, value = np.loadtxt('allrdf.out', unpack=True, usecols=(0, 1))
         found = False
 
@@ -286,9 +287,10 @@ def calculate_rdf(config):
             exit()
 
         # Take mid-point between two shells for cutoff
-        config.args.qw_cut = round(
+        index= round(
             ((index_start_of_second_shell - index_end_of_first_shell) / 2) + index_end_of_first_shell)
-        print(f"Radius between first and second coordination shell is {config.args.qw_cut}, this will be used for the"
+        config.args.qw_cut = r[index]
+        print(f"Radius between first and second coordination shell is {config.args.qw_cut}, this will be used for the "
               f"QW calculation.")
 
 def calculate_qw(config):
@@ -309,14 +311,14 @@ def calculate_qw(config):
         qw_cut to be provided as an argument or rdf to have been calculated.
     """
 
-    print("Calculating QW bond order parameters")
+    print(f"Calculating QW order parameter with a cutoff of {config.args.qw_cut}")
     print("Calculating Q4 W4")
     try:
         subprocess.run(
             [
                 'get_qw',
                 f'atfile_in={config.prefix}.traj.ordered.extxyz',
-                f'r_cut={config.args.qw_cutoff}',
+                f'r_cut={config.args.qw_cut}',
                 'l=4',
                 'calc_QWave=T'
             ],
@@ -329,7 +331,7 @@ def calculate_qw(config):
             [
                 'get_qw',
                 f'atfile_in={config.prefix}.traj.ordered.extxyz',
-                f'r_cut={config.args.qw_cutoff}',
+                f'r_cut={config.args.qw_cut}',
                 'l=6',
                 'calc_QWave=T'
             ],
@@ -356,10 +358,10 @@ def calculate_temperature_of_each_configuration(config):
     Temperature (list) : A list of temperatures corresponding to each configuration
 
     """
-
+    print(f"Calculating temperature of all configurations")
     # Read in trajectory file
     traj = io.read(f'{config.prefix}.traj.ordered.extxyz', index=':')
-    ns_energy = traj.info['ns_energy']
+    ns_energy = [i.info['ns_energy'] for i in traj]
 
     # Load in temperature and potential energy for ns_analyse output
     T, U = np.loadtxt('analyse.dat', comments='#', usecols=(0, 3), unpack=True)
@@ -371,15 +373,42 @@ def calculate_temperature_of_each_configuration(config):
 
     return temperature
 
-def write_datafile(config, temperatures):
+def write_datafile(config):
+    # Calculate temperature of each configuration
+
+    ns_temp = calculate_temperature_of_each_configuration(config)
 
     traj = io.read(f'{config.prefix}.traj.ordered.extxyz', index=':')
 
     # Create lists of all NS values for each configuration in the trajectory file
-    ns_energy = traj.info['ns_energy']
-    ns_volume = traj.info['volume']
-    ns_iter = traj.info['iter']
-    ns_ke = traj.info['ns_KE']
+    ns_energy = [i.info['ns_energy'] for i in traj]
+    ns_volume = [i.info['volume'] for i in traj]
+    ns_iter = [i.info['iter'] for i in traj]
+    ns_ke = [i.info['ns_KE'] for i in traj]
+
+    # Read in qw values
+    q4, w4 = np.loadtxt(f'{config.prefix}_ordered.qw4', unpack=True, skiprows=11, usecols=(0, 1),
+                        comments='libAtoms')
+    q6, w6 = np.loadtxt(f'{config.prefix}_ordered.qw6', unpack=True, skiprows=11, usecols=(0, 1),
+                        comments='libAtoms')
+
+    # Write data to file
+    output = open(f'{config.prefix}.data', 'a')
+    for i in range(len(q4)):
+        output.write(
+            f'{ns_iter[i]} {ns_energy[i]} {ns_ke[i]} {ns_volume[i]} {ns_temp[i]} {q4[i]} {w4[i]} {q6[i]} {w6[i]} \
+            \n')
+
+    output.close()
+
+def clean_up(config):
+    file_paths = [Path(f"{config.prefix}.traj.last_config.extxyz.idx"),
+                  Path(f"{config.prefix}.traj.ordered.extxyz.idx")]
+    for file_path in file_paths:
+        if file_path.is_file():
+            print('found file')
+            file_path.unlink()
+
 
 def main():
 
@@ -406,14 +435,11 @@ def main():
     # Calculate the QW parameters
     if config.args.qw:
         calculate_qw(config)
-
-    # Calculate temperature of each configuration
-    temperature = calculate_temperature_of_each_configuration(config)
-
     # write data file:
-    write_datafile(config, temperature)
+    write_datafile(config)
 
-
+    # Cleanup
+    clean_up(config)
 
 
 
