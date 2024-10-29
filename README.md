@@ -14,8 +14,7 @@ An example input is as follow:
 ```bash
 python main.py --rdf --qw -M 0.1 -n 2000 -D 1 
 ```
-`-M 0.1 -n 2000 -D 1`. Providing  `-M`, `-n` and `-D` turns on calculating the partition function. In this example it will start at T= 0.1K (`-M`), and will calculate it across 2000 temperature steps (`-N`) with temeprature spacing of 1~K.\
-(`-d`), calculating the partition function from 0.1K to 2000.1K.\
+`-M 0.1 -n 2000 -D 1`. Providing  `-M`, `-n` and `-D` turns on calculating the partition function. In this example it will start at T= 0.1K (`-M`), and will calculate it across 2000 temperature steps (`-N`) with temeprature spacing of 1~K (`-d`), calculating the partition function from 0.1K to 2000.1K.\
 `--rdf` Turns on calculating the radial distribution function.\
 `--qw` Turns on calculating the Steinhardt (QW) bond order parameters.
 
