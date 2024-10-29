@@ -19,7 +19,8 @@ class Config:
         arguments, and validating flags.
         """
         # Passed arguments
-        self.parser = argparse.ArgumentParser(description='Pymatnest post analysis package.')
+        self.parser = argparse.ArgumentParser(description='Pymatnest post analysis package.',
+                                              usage='python main.py --rdf --qw -M 0.1 -n 2000 -D 1')
         self._add_arguments()
         self.args = self.parser.parse_args()
         self._validate_flags()
